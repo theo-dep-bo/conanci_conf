@@ -29,12 +29,18 @@ parameters:
   - name: conanConfigUrl
     type: string
     default: https://github.com/theo-dep-bo/conanci_conf.git
-  - name: linuxVmImage
+  - name: linuxPool
     type: string
-    default: ubuntu-24.04
-  - name: windowsVmImage
+    default: Linux Blue Ortho
+  - name: linuxAgent
     type: string
-    default: windows-2025
+    default: linux-build
+  - name: windowsPool
+    type: string
+    default: Windows Blue Ortho
+  - name: windowsAgent
+    type: string
+    default: DT-BUILD1
 
 stages:
   - stage: Lock
@@ -43,15 +49,15 @@ stages:
       - job: lock
         displayName: Create lockfiles
         pool:
-          vmImage: ${{ parameters.linuxVmImage }}
+          name: ${{ parameters.linuxPool }}
+          demands:
+            - Agent.Name -equals ${{ parameters.linuxAgent }}
         steps:
           - checkout: github-package
-          - bash: |
-              python3 -m pip install --upgrade pip
-              python3 -m pip install conan
-              conan config install ${{ parameters.conanConfigUrl }}
-              conan profile detect
-            displayName: Install and configure Conan
+            clean: true
+          - template: steps/install-conan.yml
+            parameters:
+              conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
               conan remote enable develop
@@ -65,6 +71,7 @@ stages:
           - publish: conan.lock
             artifact: conan_lock
             displayName: Publish lockfile
+          - template: steps/remove-conan.yml
 
   - stage: Build
     displayName: Build packages
@@ -75,21 +82,23 @@ stages:
         strategy:
           matrix:
             linux:
-              vmImage: ${{ parameters.linuxVmImage }}
+              pool: ${{ parameters.linuxPool }}
+              agentName: ${{ parameters.linuxAgent }}
               profile: linux
             windows:
-              vmImage: ${{ parameters.windowsVmImage }}
+              pool: ${{ parameters.windowsPool }}
+              agentName: ${{ parameters.windowsAgent }}
               profile: windows
         pool:
-          vmImage: $(vmImage)
+          name: $(pool)
+          demands:
+            - Agent.Name -equals $(agentName)
         steps:
           - checkout: github-package
-          - bash: |
-              python3 -m pip install --upgrade pip
-              python3 -m pip install conan
-              conan profile detect
-              conan config install ${{ parameters.conanConfigUrl }}
-            displayName: Install and configure Conan
+            clean: true
+          - template: steps/install-conan.yml
+            parameters:
+              conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
               conan remote enable develop
@@ -120,6 +129,7 @@ stages:
           - publish: uploaded_$(profile).json
             artifact: uploaded_$(profile)
             displayName: Publish pkglist
+          - template: steps/remove-conan.yml
 
   - stage: Promotion
     displayName: Promote packages
@@ -128,13 +138,15 @@ stages:
       - job: promotion
         displayName: Promote
         pool:
-          vmImage: ${{ parameters.linuxVmImage }}
+          name: ${{ parameters.linuxPool }}
+          demands:
+            - Agent.Name -equals ${{ parameters.linuxAgent }}
         steps:
-          - bash: |
-              python3 -m pip install --upgrade pip
-              python3 -m pip install conan
-              conan config install ${{ parameters.conanConfigUrl }}
-            displayName: Install and configure Conan
+          - checkout: github-package
+            clean: true
+          - template: steps/install-conan.yml
+            parameters:
+              conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
               conan remote enable packages
@@ -162,3 +174,4 @@ stages:
               conan download --list=uploaded.json -r=packages --format=json > promote.json
               conan upload --list=promote.json -r=products -c
             displayName: Promote packages
+          - template: steps/remove-conan.yml

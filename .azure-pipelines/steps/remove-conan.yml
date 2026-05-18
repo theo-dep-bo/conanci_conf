@@ -1,0 +1,11 @@
+steps:
+  - bash: |
+      conan remove "*" -c
+      if [ -d "$HOME/.conan2" ]; then
+        rm -rf "$HOME/.conan2"
+      else
+        rm -rf "$USERPROFILE/.conan2"
+      fi
+      python3 -m pip uninstall -y conan
+    displayName: Remove Conan
+    condition: always()

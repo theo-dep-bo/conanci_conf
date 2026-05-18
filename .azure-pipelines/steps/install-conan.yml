@@ -1,0 +1,11 @@
+parameters:
+  - name: conanConfigUrl
+    type: string
+
+steps:
+  - bash: |
+      python3 -m pip install --upgrade pip
+      python3 -m pip install conan
+      conan config install ${{ parameters.conanConfigUrl }}
+      conan profile detect
+    displayName: Install and configure Conan
