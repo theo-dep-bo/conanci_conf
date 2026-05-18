@@ -1,22 +1,22 @@
 {
-    "remotes": [
+  "remotes": [
     {
       "name": "products",
-      "url": "https://conandev.jfrog.io/artifactory/api/conan/citutorial-products",
-      "verify_ssl": true,
+      "url": "http://pluton.blue-ortho.com:8081/artifactory/api/conan/conan-products",
+      "verify_ssl": false,
       "disabled": true
     },
     {
       "name": "develop",
-      "url": "https://conandev.jfrog.io/artifactory/api/conan/citutorial-develop",
-      "verify_ssl": true,
+      "url": "http://pluton.blue-ortho.com:8081/artifactory/api/conan/conan-develop",
+      "verify_ssl": false,
       "disabled": true
     },
     {
       "name": "packages",
-      "url": "https://conandev.jfrog.io/artifactory/api/conan/citutorial-packages",
-      "verify_ssl": true,
+      "url": "http://pluton.blue-ortho.com:8081/artifactory/api/conan/conan-packages",
+      "verify_ssl": false,
       "disabled": true
     }
-    ]
+  ]
 }
