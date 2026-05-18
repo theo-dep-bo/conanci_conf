@@ -1,0 +1,164 @@
+# Reusable Azure Pipelines template for Conan packages
+#
+# This template defines the 3-stage CI flow (Lock -> Build linux+windows -> Promotion)
+# shared by all the Conan package repos (ai, engine, game, graphics, mapviewer, mathlib).
+#
+# It is consumed via `extends:` in each repo's `azure-pipelines.yml`:
+#
+#   resources:
+#     repositories:
+#       - repository: conf
+#         type: github                       # or `git` for Azure Repos
+#         name: theo-dep-bo/conanci_conf
+#         endpoint: <service-connection-name>
+#         ref: refs/heads/main
+#
+#   extends:
+#     template: .azure-pipelines/package-pipeline.yml@conf
+#     parameters:
+#       packageName: ai
+#
+# Required pipeline variables (define as secret variables or via a variable group):
+#   USERDEVELOP, TOKENDEVELOP
+#   USERPACKAGES, TOKENPACKAGES
+#   USERPRODUCTS, TOKENPRODUCTS
+
+parameters:
+  - name: packageName
+    type: string
+  - name: conanConfigUrl
+    type: string
+    default: https://github.com/theo-dep-bo/conanci_conf.git
+  - name: linuxVmImage
+    type: string
+    default: ubuntu-24.04
+  - name: windowsVmImage
+    type: string
+    default: windows-2025
+
+stages:
+  - stage: Lock
+    displayName: Create lockfiles
+    jobs:
+      - job: lock
+        displayName: Create lockfiles
+        pool:
+          vmImage: ${{ parameters.linuxVmImage }}
+        steps:
+          - checkout: github-package
+          - bash: |
+              python3 -m pip install --upgrade pip
+              python3 -m pip install conan
+              conan config install ${{ parameters.conanConfigUrl }}
+              conan profile detect
+            displayName: Install and configure Conan
+          - bash: |
+              set -e
+              conan remote enable develop
+              conan remote login develop "$USERDEVELOP" -p "$TOKENDEVELOP"
+              conan lock create . -pr=windows --lockfile-out=conan.lock
+              conan lock create . -pr=linux  --lockfile=conan.lock --lockfile-out=conan.lock
+            displayName: Create lockfile
+            env:
+              USERDEVELOP: $(USERDEVELOP)
+              TOKENDEVELOP: $(TOKENDEVELOP)
+          - publish: conan.lock
+            artifact: conan_lock
+            displayName: Publish lockfile
+
+  - stage: Build
+    displayName: Build packages
+    dependsOn: Lock
+    jobs:
+      - job: build
+        displayName: Build package
+        strategy:
+          matrix:
+            linux:
+              vmImage: ${{ parameters.linuxVmImage }}
+              profile: linux
+            windows:
+              vmImage: ${{ parameters.windowsVmImage }}
+              profile: windows
+        pool:
+          vmImage: $(vmImage)
+        steps:
+          - checkout: github-package
+          - bash: |
+              python3 -m pip install --upgrade pip
+              python3 -m pip install conan
+              conan profile detect
+              conan config install ${{ parameters.conanConfigUrl }}
+            displayName: Install and configure Conan
+          - bash: |
+              set -e
+              conan remote enable develop
+              conan remote login develop "$USERDEVELOP" -p "$TOKENDEVELOP"
+            displayName: Configure repos
+            env:
+              USERDEVELOP: $(USERDEVELOP)
+              TOKENDEVELOP: $(TOKENDEVELOP)
+          - download: current
+            artifact: conan_lock
+            displayName: Download conan.lock
+          - bash: |
+              set -e
+              conan create . --build="missing:${{ parameters.packageName }}/*" -pr=$(profile) \
+                --lockfile="$(Pipeline.Workspace)/conan_lock/conan.lock" \
+                --format=json > graph.json
+            displayName: Build package
+          - bash: |
+              set -e
+              conan remote enable packages
+              conan remote login packages "$USERPACKAGES" -p "$TOKENPACKAGES"
+              conan list --graph=graph.json --graph-binaries=build --format=json > built.json
+              conan upload -l=built.json -r=packages -c --format=json > uploaded_$(profile).json
+            displayName: Upload package
+            env:
+              USERPACKAGES: $(USERPACKAGES)
+              TOKENPACKAGES: $(TOKENPACKAGES)
+          - publish: uploaded_$(profile).json
+            artifact: uploaded_$(profile)
+            displayName: Publish pkglist
+
+  - stage: Promotion
+    displayName: Promote packages
+    dependsOn: Build
+    jobs:
+      - job: promotion
+        displayName: Promote
+        pool:
+          vmImage: ${{ parameters.linuxVmImage }}
+        steps:
+          - bash: |
+              python3 -m pip install --upgrade pip
+              python3 -m pip install conan
+              conan config install ${{ parameters.conanConfigUrl }}
+            displayName: Install and configure Conan
+          - bash: |
+              set -e
+              conan remote enable packages
+              conan remote login packages "$USERPACKAGES" -p "$TOKENPACKAGES"
+              conan remote enable products
+              conan remote login products "$USERPRODUCTS" -p "$TOKENPRODUCTS"
+            displayName: Configure repos
+            env:
+              USERPACKAGES: $(USERPACKAGES)
+              TOKENPACKAGES: $(TOKENPACKAGES)
+              USERPRODUCTS: $(USERPRODUCTS)
+              TOKENPRODUCTS: $(TOKENPRODUCTS)
+          - download: current
+            artifact: uploaded_linux
+            displayName: Download Linux pkglist
+          - download: current
+            artifact: uploaded_windows
+            displayName: Download Windows pkglist
+          - bash: |
+              set -e
+              cp "$(Pipeline.Workspace)/uploaded_linux/uploaded_linux.json" .
+              cp "$(Pipeline.Workspace)/uploaded_windows/uploaded_windows.json" .
+              ls -R
+              conan pkglist merge -l uploaded_windows.json -l uploaded_linux.json --format=json > uploaded.json
+              conan download --list=uploaded.json -r=packages --format=json > promote.json
+              conan upload --list=promote.json -r=products -c
+            displayName: Promote packages
