@@ -42,6 +42,9 @@ parameters:
     type: string
     default: DT-BUILD1
 
+variables:
+  CONAN_HOME: $(Build.SourcesDirectory)/.conan2
+
 stages:
   - stage: Lock
     displayName: Create lockfiles
@@ -49,9 +52,11 @@ stages:
       - job: lock
         displayName: Create lockfiles
         pool:
-          name: ${{ parameters.linuxPool }}
+          name: ${{ parameters.windowsPool }}
           demands:
-            - Agent.Name -equals ${{ parameters.linuxAgent }}
+            - Agent.Name -equals ${{ parameters.windowsAgent }}
+        variables:
+          PYTHON: python
         steps:
           - checkout: github-package
             clean: true
@@ -60,6 +65,7 @@ stages:
               conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
+              source .venv/bin/activate
               conan remote enable develop
               conan remote login develop "$USERDEVELOP" -p "$TOKENDEVELOP"
               conan lock create . -pr=windows --lockfile-out=conan.lock
@@ -71,7 +77,6 @@ stages:
           - publish: conan.lock
             artifact: conan_lock
             displayName: Publish lockfile
-          - template: steps/remove-conan.yml
 
   - stage: Build
     displayName: Build packages
@@ -85,10 +90,12 @@ stages:
               pool: ${{ parameters.linuxPool }}
               agentName: ${{ parameters.linuxAgent }}
               profile: linux
+              PYTHON: python3
             windows:
               pool: ${{ parameters.windowsPool }}
               agentName: ${{ parameters.windowsAgent }}
               profile: windows
+              PYTHON: python
         pool:
           name: $(pool)
           demands:
@@ -101,6 +108,7 @@ stages:
               conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
+              source .venv/bin/activate
               conan remote enable develop
               conan remote login develop "$USERDEVELOP" -p "$TOKENDEVELOP"
             displayName: Configure repos
@@ -112,14 +120,17 @@ stages:
             displayName: Download conan.lock
           - bash: |
               set -e
+              source .venv/bin/activate
               conan create . --build="missing:${{ parameters.packageName }}/*" -pr=$(profile) \
                 --lockfile="$(Pipeline.Workspace)/conan_lock/conan.lock" \
                 --format=json > graph.json
             displayName: Build package
           - bash: |
               set -e
+              source .venv/bin/activate
               conan remote enable packages
               conan remote login packages "$USERPACKAGES" -p "$TOKENPACKAGES"
+              git status
               conan list --graph=graph.json --graph-binaries=build --format=json > built.json
               conan upload -l=built.json -r=packages -c --format=json > uploaded_$(profile).json
             displayName: Upload package
@@ -129,7 +140,6 @@ stages:
           - publish: uploaded_$(profile).json
             artifact: uploaded_$(profile)
             displayName: Publish pkglist
-          - template: steps/remove-conan.yml
 
   - stage: Promotion
     displayName: Promote packages
@@ -138,9 +148,11 @@ stages:
       - job: promotion
         displayName: Promote
         pool:
-          name: ${{ parameters.linuxPool }}
+          name: ${{ parameters.windowsPool }}
           demands:
-            - Agent.Name -equals ${{ parameters.linuxAgent }}
+            - Agent.Name -equals ${{ parameters.windowsAgent }}
+        variables:
+          PYTHON: python
         steps:
           - checkout: github-package
             clean: true
@@ -149,6 +161,7 @@ stages:
               conanConfigUrl: ${{ parameters.conanConfigUrl }}
           - bash: |
               set -e
+              source .venv/bin/activate
               conan remote enable packages
               conan remote login packages "$USERPACKAGES" -p "$TOKENPACKAGES"
               conan remote enable products
@@ -167,6 +180,7 @@ stages:
             displayName: Download Windows pkglist
           - bash: |
               set -e
+              source .venv/bin/activate
               cp "$(Pipeline.Workspace)/uploaded_linux/uploaded_linux.json" .
               cp "$(Pipeline.Workspace)/uploaded_windows/uploaded_windows.json" .
               ls -R
@@ -174,4 +188,3 @@ stages:
               conan download --list=uploaded.json -r=packages --format=json > promote.json
               conan upload --list=promote.json -r=products -c
             displayName: Promote packages
-          - template: steps/remove-conan.yml
