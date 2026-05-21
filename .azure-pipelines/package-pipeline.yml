@@ -24,21 +24,12 @@ parameters:
   - name: conanConfigUrl
     type: string
     default: https://github.com/theo-dep-bo/conanci_conf.git
-  - name: linuxPool
+  - name: pool
     type: string
-    default: Linux Blue Ortho
-  - name: linuxAgent
-    type: string
-    default: linux-build
-  - name: windowsPool
-    type: string
-    default: Windows Blue Ortho
-  - name: windowsAgent
-    type: string
-    default: DT-BUILD1
+    default: Sandbox Blue Ortho 2
 
 variables:
-  CONAN_HOME: $(Build.SourcesDirectory)/.conan2
+  CONAN_HOME: $(Build.SourcesDirectory)/.venv/.conan2
   SYSTEM_USER: $(Build.RequestedForId)
   SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
@@ -49,11 +40,9 @@ stages:
       - job: lock
         displayName: Create lockfiles
         pool:
-          name: ${{ parameters.windowsPool }}
+          name: ${{ parameters.pool }}
           demands:
-            - Agent.Name -equals ${{ parameters.windowsAgent }}
-        variables:
-          PYTHON: python
+            - Agent.OS -equals Linux
         steps:
           - checkout: github-package
             clean: true
@@ -81,19 +70,15 @@ stages:
         strategy:
           matrix:
             linux:
-              pool: ${{ parameters.linuxPool }}
-              agentName: ${{ parameters.linuxAgent }}
+              os: Linux
               profile: linux
-              PYTHON: python3
             windows:
-              pool: ${{ parameters.windowsPool }}
-              agentName: ${{ parameters.windowsAgent }}
+              os: Windows_NT
               profile: windows
-              PYTHON: python
         pool:
-          name: $(pool)
+          name: ${{ parameters.pool }}
           demands:
-            - Agent.Name -equals $(agentName)
+            - Agent.OS -equals $(os)
         steps:
           - checkout: github-package
             clean: true
@@ -114,18 +99,17 @@ stages:
               source .venv/bin/activate
               conan create . --build="missing:${{ parameters.packageName }}/*" -pr=$(profile) \
                 --lockfile="$(Pipeline.Workspace)/conan_lock/conan.lock" \
-                --format=json > graph.json
+                --format=json > "$(Build.BinariesDirectory)/graph.json"
             displayName: Build package
           - bash: |
               set -e
               source .venv/bin/activate
               conan remote enable packages
               conan remote login packages "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
-              git status
-              conan list --graph=graph.json --graph-binaries=build --format=json > built.json
-              conan upload -l=built.json -r=packages -c --format=json > uploaded_$(profile).json
+              conan list --graph="$(Build.BinariesDirectory)/graph.json" --graph-binaries=build --format=json > "$(Build.BinariesDirectory)/built.json"
+              conan upload -l="$(Build.BinariesDirectory)/built.json" -r=packages -c --format=json > "$(Build.BinariesDirectory)/uploaded_$(profile).json"
             displayName: Upload package
-          - publish: uploaded_$(profile).json
+          - publish: $(Build.BinariesDirectory)/uploaded_$(profile).json
             artifact: uploaded_$(profile)
             displayName: Publish pkglist
 
@@ -136,11 +120,9 @@ stages:
       - job: promotion
         displayName: Promote
         pool:
-          name: ${{ parameters.windowsPool }}
+          name: ${{ parameters.pool }}
           demands:
-            - Agent.Name -equals ${{ parameters.windowsAgent }}
-        variables:
-          PYTHON: python
+            - Agent.OS -equals Linux
         steps:
           - checkout: github-package
             clean: true

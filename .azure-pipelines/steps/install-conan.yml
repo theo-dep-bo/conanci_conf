@@ -4,14 +4,8 @@ parameters:
 
 steps:
   - bash: |
-      echo $(PYTHON) || true
-      which $(PYTHON) || true
-      $(PYTHON) --version || true
-    displayName: Check Python
-
-  - bash: |
       set -e
-      $(PYTHON) -m venv .venv
+      python3 -m venv .venv
       if ! -d .venv/bin; then
         ln -s "$(Build.SourcesDirectory)/.venv/Scripts" .venv/bin
       fi
@@ -20,9 +14,8 @@ steps:
   - bash: |
       set -e
       source .venv/bin/activate
-      $(PYTHON) -m pip install --upgrade pip
-      $(PYTHON) -m pip install conan
-      which conan || true
+      python3 -m pip install --upgrade pip
+      python3 -m pip install conan
       conan --version || true
     displayName: Install Conan
 
