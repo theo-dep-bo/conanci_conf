@@ -52,8 +52,8 @@ stages:
           - bash: |
               set -e
               source .venv/bin/activate
-              conan remote enable products
-              conan remote login products "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
+              conan remote enable develop
+              conan remote login develop "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
               conan lock create . -pr=windows --lockfile-out=conan.lock
               conan lock create . -pr=linux  --lockfile=conan.lock --lockfile-out=conan.lock
             displayName: Create lockfile
@@ -88,8 +88,8 @@ stages:
           - bash: |
               set -e
               source .venv/bin/activate
-              conan remote enable products
-              conan remote login products "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
+              conan remote enable develop
+              conan remote login develop "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
             displayName: Configure repos
           - download: current
             artifact: conan_lock
