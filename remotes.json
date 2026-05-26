@@ -2,19 +2,19 @@
   "remotes": [
     {
       "name": "packages",
-      "url": "http://pluton.blue-ortho.com:8081/local",
+      "url": "http://localhost:8081/local",
       "verify_ssl": false,
       "disabled": true
     },
     {
       "name": "products",
-      "url": "http://pluton.blue-ortho.com:8081/prerelease",
+      "url": "http://localhost:8081/prerelease",
       "verify_ssl": false,
       "disabled": true
     },
     {
       "name": "develop",
-      "url": "http://pluton.blue-ortho.com:8081/release",
+      "url": "http://localhost:8081/release",
       "verify_ssl": false,
       "disabled": true
     }
