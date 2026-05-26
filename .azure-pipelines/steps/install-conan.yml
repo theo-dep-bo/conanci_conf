@@ -6,7 +6,7 @@ steps:
   - bash: |
       set -e
       python3 -m venv .venv
-      if ! -d .venv/bin; then
+      if ! [ -d .venv/bin ]; then
         ln -s "$(Build.SourcesDirectory)/.venv/Scripts" .venv/bin
       fi
     displayName: Create virtualenv
@@ -25,3 +25,11 @@ steps:
       conan config install ${{ parameters.conanConfigUrl }}
       conan profile detect --force
     displayName: Configure Conan
+
+  - bash: |
+      set -e
+      source .venv/bin/activate
+      curl -L -o ".venv/Scripts/jq.exe" https://github.com/jqlang/jq/releases/latest/download/jq-win64.exe
+      jq --version || true
+    displayName: Install jq
+    condition: eq(variables['Agent.OS'], 'Windows_NT')
