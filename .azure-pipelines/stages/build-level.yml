@@ -1,0 +1,75 @@
+# Stage template for building a single Conan build-order level.
+#
+# Parameters:
+#   levelIndex    – index of the level to build (0-3)
+#   previousStage – name of the stage to wait for before this one
+#                   (use 'Lock' for level 0, 'LevelN-1' for subsequent levels)
+#   pool          – agent pool name
+#   conanConfigUrl – URL of the Conan configuration repository
+
+parameters:
+  - name: levelIndex
+    type: number
+  - name: previousStage
+    type: string
+  - name: pool
+    type: string
+  - name: conanConfigUrl
+    type: string
+
+stages:
+  - stage: Level${{ parameters.levelIndex }}
+    displayName: Build level ${{ parameters.levelIndex }}
+    dependsOn:
+      - Lock
+      - ${{ if ne(parameters.previousStage, 'Lock') }}:
+        - ${{ parameters.previousStage }}
+    condition: |
+      and(
+        in(dependencies.${{ parameters.previousStage }}.result, 'Succeeded', 'Skipped'),
+        eq(dependencies.Lock.outputs['lock.set_levels.hasLevel${{ parameters.levelIndex }}'], 'true')
+      )
+    jobs:
+      - job: build
+        displayName: Build
+        strategy:
+          matrix:
+            linux:
+              os: Linux
+              profile: linux
+              osFilter: linux
+            windows:
+              os: Windows_NT
+              profile: windows
+              osFilter: windows
+        pool:
+          name: ${{ parameters.pool }}
+          demands:
+            - Agent.OS -equals $(os)
+        steps:
+          - checkout: github-products
+            path: s
+            clean: true
+
+          - template: ../steps/install-conan.yml
+            parameters:
+              conanConfigUrl: ${{ parameters.conanConfigUrl }}
+
+          - bash: |
+              set -e
+              source .venv/bin/activate
+              conan remote enable products
+              conan remote login products "$(SYSTEM_USER)" -p "$(SYSTEM_ACCESSTOKEN)"
+            displayName: Configure remotes
+
+          - download: current
+            artifact: conan_lock
+            displayName: Download lockfile
+
+          - download: current
+            artifact: build_order
+            displayName: Download build order
+
+          - template: ../steps/build-level.yml
+            parameters:
+              levelIndex: ${{ parameters.levelIndex }}

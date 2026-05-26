@@ -1,0 +1,68 @@
+# Reusable Azure Pipelines step template for building a single Conan build-order level.
+#
+# Used by the products pipeline. Expects the calling job to have:
+#   - matrix variables: profile, osFilter
+#   - downloaded artifacts: conan_lock (conan.lock), build_order (build_order.json)
+#   - the products remote already enabled and authenticated
+
+parameters:
+  - name: levelIndex
+    type: number
+
+steps:
+  - bash: |
+      set -e
+      source .venv/bin/activate
+      BUILD_ORDER_FILE="$(Pipeline.Workspace)/build_order/build_order.json"
+      LOCKFILE="$(Pipeline.Workspace)/conan_lock/conan.lock"
+      mkdir -p "$(Build.BinariesDirectory)"
+      UPLOAD_FILE="$(Build.BinariesDirectory)/uploaded_level${{ parameters.levelIndex }}_$(osFilter).json"
+
+      BINARIES=$(jq -r "
+        .order[${{ parameters.levelIndex }}]? // [] |
+        .[].packages[][] |
+        select(any(.filenames[]; contains(\"$(osFilter)\"))) |
+        [.package_id[:8], .build_args] | @tsv
+      " "$BUILD_ORDER_FILE")
+
+      if [ -z "$BINARIES" ]; then
+        echo "No packages to build for $(osFilter) at level ${{ parameters.levelIndex }}."
+        touch "$UPLOAD_FILE"
+        echo "##vso[task.setvariable variable=hasGraphs]false"
+        exit 0
+      fi
+
+      while IFS=$'\t' read -r PKG_ID BUILD_ARGS; do
+        echo "Running: conan install $BUILD_ARGS --lockfile=$LOCKFILE -pr=$(profile)"
+        conan install $BUILD_ARGS --lockfile="$LOCKFILE" -pr="$(profile)" --format=json > "graph_${PKG_ID}.json"
+      done <<< "$BINARIES"
+
+      echo "##vso[task.setvariable variable=hasGraphs]true"
+    displayName: Build packages
+
+  - bash: |
+      set -e
+      source .venv/bin/activate
+      UPLOAD_FILE="$(Build.BinariesDirectory)/uploaded_level${{ parameters.levelIndex }}_$(osFilter).json"
+
+      shopt -s nullglob
+      for GRAPH_FILE in graph_*.json; do
+        conan list --graph="$GRAPH_FILE" --graph-binaries=build --format=json > "${GRAPH_FILE/graph_/built_}"
+      done
+
+      LIST_FILES=(built_*.json)
+      if [ "${#LIST_FILES[@]}" -eq 1 ]; then
+        cp "${LIST_FILES[0]}" built.json
+      else
+        MERGE_ARGS=$(printf -- ' -l %s' "${LIST_FILES[@]}")
+        conan pkglist merge $MERGE_ARGS --format=json > built.json
+      fi
+
+      conan upload -l=built.json -r=products -c --format=json > "$UPLOAD_FILE"
+      echo "Packages uploaded, pkglist saved to $UPLOAD_FILE"
+    condition: and(succeeded(), eq(variables.hasGraphs, 'true'))
+    displayName: Upload packages
+
+  - publish: $(Build.BinariesDirectory)/uploaded_level${{ parameters.levelIndex }}_$(osFilter).json
+    artifact: uploaded_level${{ parameters.levelIndex }}_$(osFilter)
+    displayName: Publish level ${{ parameters.levelIndex }} pkglist
